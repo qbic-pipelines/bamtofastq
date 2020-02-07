@@ -177,9 +177,10 @@ process checkIfPairedEnd{
   output:
   set val(name), file(bam), file('*paired.txt') optional true into bam_files_paired_map_map,      
                                                                    bam_files_paired_unmap_unmap, bam_files_paired_unmap_map, bam_files_paired_map_unmap
-  set val(name), file(bam), file('*single.txt') optional true into bam_file_single_end //aka is not paired end
+  set val(name), file(bam), env(isSingleEnd) optional true into bam_file_single_end //aka is not paired end
   file "*.{flagstat,idxstats,stats}" into ch_bam_flagstat_mqc
   file "*.{zip,html}" into ch_fastqc_reports_mqc_bam
+  file "whatIsThis.txt"
 
   script:
   """
@@ -189,8 +190,11 @@ process checkIfPairedEnd{
 
   if [ \$({ samtools view -H $bam ; samtools view $bam | head -n1000; } | samtools view -c -f 1  | awk '{print \$1/1000}') = "1" ]; then 
     echo 1 > ${name}.paired.txt
+    isSingleEnd=0
   else
     echo 0 > ${name}.single.txt
+    isSingleEnd=1
+    echo \$isSingleEnd > whatIsThis.txt 
   fi
 
   samtools flagstat $bam > ${bam}.flagstat
@@ -383,8 +387,6 @@ process extractMappedReadsBed{
   output:
   set val(name), file('*_Bedmapped.fq') into bed_reads_mapped
 
-  //file ('*singletons.fq') //This should always be empty, as only mapped_mapped are extracted
-
   script:
   """
   bamToFastq -i $sort -fq ${name}._R1_Bedmapped.fq -fq2 ${name}_R2_Bedmapped.fq 
@@ -399,8 +401,6 @@ process extractUnmappedReadsBed{
 
   output:
   set val(name), file('*Bedunmapped.fq') into bed_reads_unmapped
-
-  //file ('*singletons.fq') // There may be something in here, if for some reason out of a sequencer there was a singleton present. Other than that each read should have a pair as reads are from (unm_unm, m_unm, unm_m). Actually the singletons file should also be empty as only pairs are extracted as well. 
 
   script:
   """
@@ -418,7 +418,11 @@ bed_reads_mapped.join(bed_reads_unmapped, remainder: true)
 
 process joinMappedAndUnmappedFastq{
   tag "$name"
-  publishDir "${params.outdir}/reads", mode: 'copy', enabled: !params.gz
+  publishDir "${params.outdir}/reads", mode: 'copy', enabled: !params.gz,
+        saveAs: { filename ->
+            if (filename.indexOf(".fq") > 0) filename
+            else null
+        }
   label 'process_medium'
 
   input:
@@ -477,13 +481,13 @@ process singleEndSort{
     label 'process_medium'
 
     input:
-    set val(name), file(bam), file(txt) from bam_file_single_end
+    set val(name), file(bam), val(isSingleEnd) from bam_file_single_end
     
     output:
     set val(name), file ('*.sort') into sort_single_end, sort_single_end_bed
 
     when:
-    txt.exists()
+    isSingleEnd == '1'
 
     script:
     """
@@ -494,7 +498,12 @@ process singleEndSort{
 process singleEndExtract{
     tag "$name"
     label 'process_medium'
-    publishDir "${params.outdir}/reads", mode: 'copy'
+    publishDir "${params.outdir}/reads", mode: 'copy',
+        saveAs: { filename ->
+            if (filename.indexOf(".fq")  > 0) filename
+            else if ( filename.indexOf(".fq.gz") > 0 ) filename
+            else null
+        }
 
     input:
     set val(name), file(sort) from sort_single_end
@@ -536,6 +545,8 @@ process singleEndExtract{
     script:
     if(params.gz){
       """
+      #TODO: actually test this
+
       bamToFastq -i $sort -fq ${name}.Bedsingleton.fq.gz 
       fastqc -q -t $task.cpus ${name}.Bedsingleton.fq.gz
       """
