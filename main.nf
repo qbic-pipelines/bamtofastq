@@ -134,7 +134,9 @@ summary['Max Resources']                                              = "$params
 if (workflow.containerEngine) summary['Container']                    = "$workflow.containerEngine - $workflow.container"
 summary['Output dir']                                                 = params.outdir
 if (params.chr) summary['Only reads mapped to chr']                   = params.chr
-if (params.index_files) summary['Index files available']    = params.index_files
+if (params.index_files) summary['Index files available']              = params.index_files ? 'Yes': 'No'
+if (params.samtools_collate_fast) summary['Collate fast']             = params.samtools_collate_fast ? 'Yes': 'No'
+if (params.reads_in_memory) summary['Reads in memory']                = params.reads_in_memory ? params.reads_in_memory : ''
 summary['Read QC']                                                    = params.no_read_QC ? 'No' : 'Yes'
 summary['Stats']                                                      = params.no_stats ? 'No' : 'Yes'
 summary['Launch dir']                                                 = workflow.launchDir
@@ -225,7 +227,7 @@ if(!params.index_files){
 
     script:
     """
-    samtools index ${bam}
+    samtools index -@$task.cpus ${bam}
     """
   }
 }
@@ -386,7 +388,7 @@ process pairedEndMapMap{
 
   script:
   """
-  samtools view -b -f1 -F12 $bam -@$task.cpus -o ${name}.map_map.bam
+  samtools view -b1 -f1 -F12 $bam -@$task.cpus -o ${name}.map_map.bam
   """
 }
 
@@ -404,7 +406,7 @@ process pairedEndUnmapUnmap{
 
   script:
   """
-  samtools view -b -f12 -F256 $bam -@${task.cpus} -o ${name}.unmap_unmap.bam
+  samtools view -b1 -f12 -F256 $bam -@$task.cpus -o ${name}.unmap_unmap.bam
   """
 }
 
@@ -422,7 +424,7 @@ process pairedEndUnmapMap{
 
   script:
   """
-  samtools view -b -f4 -F264 $bam -@${task.cpus} -o ${name}.unmap_map.bam
+  samtools view -b1 -f4 -F264 $bam -@$task.cpus -o ${name}.unmap_map.bam
   """
 }
 
@@ -440,7 +442,7 @@ process pairedEndMapUnmap{
 
   script:
   """
-  samtools view -b -f8 -F260 $bam  -@${task.cpus} -o ${name}.map_unmap.bam
+  samtools view -b1 -f8 -F260 $bam  -@$task.cpus -o ${name}.map_unmap.bam
   """
 }
 
